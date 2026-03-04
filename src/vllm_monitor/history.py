@@ -38,7 +38,7 @@ SPARK_CHARS = "▁▂▃▄▅▆▇█"
 class SparklineBuffer:
     """Fixed-width ring buffer that renders unicode sparklines."""
 
-    def __init__(self, width: int = 20):
+    def __init__(self, width: int = 40):
         self.width = width
         self._buf: collections.deque[float] = collections.deque(maxlen=width)
         self.max_value: float = 0.0
@@ -47,6 +47,11 @@ class SparklineBuffer:
         self._buf.append(value)
         if value > self.max_value:
             self.max_value = value
+
+    @property
+    def last(self) -> float:
+        """Return the most recent value, or 0.0 if empty."""
+        return self._buf[-1] if self._buf else 0.0
 
     def render(self) -> str:
         if not self._buf:

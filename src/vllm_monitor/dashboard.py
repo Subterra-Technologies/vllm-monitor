@@ -37,7 +37,8 @@ def _color_for_pct(pct: float, green, yellow, red) -> int:
 
 
 def _draw_gpu_panel(
-    stdscr, row: int, gpu: GpuInfo, width: int, colors: dict
+    stdscr, row: int, gpu: GpuInfo, width: int, colors: dict,
+    sparklines: dict,
 ) -> int:
     """Draw GPU info panel. Returns the next row."""
     W = width
@@ -54,6 +55,23 @@ def _draw_gpu_panel(
     mem_type = "Unified Memory" if gpu.is_unified_memory else "VRAM"
     safe_addnstr(stdscr, row, 0, f" GPU  {label} ({mem_type})", W, MAGENTA | BOLD)
     row += 1
+
+    # Update GPU sparklines
+    gpu_key = f"gpu_{gpu.index}"
+    if gpu_key not in sparklines:
+        sparklines[gpu_key] = {
+            "temp": SparklineBuffer(),
+            "gpu_util": SparklineBuffer(),
+            "mem_pct": SparklineBuffer(),
+            "power": SparklineBuffer(),
+        }
+    sparklines[gpu_key]["temp"].push(float(gpu.temp))
+    sparklines[gpu_key]["gpu_util"].push(float(gpu.gpu_util))
+    mt = gpu.mem_total_mb
+    mu = gpu.mem_used_mb
+    mem_pct = (mu / mt * 100) if mt > 0 else 0.0
+    sparklines[gpu_key]["mem_pct"].push(mem_pct)
+    sparklines[gpu_key]["power"].push(gpu.power_inst)
 
     # Temperature
     t = gpu.temp
@@ -116,6 +134,42 @@ def _draw_gpu_panel(
             col += len(txt) + 2
         row += 1
 
+    # Sparkline section separator
+    sep_width = min(42, W - 2)
+    safe_addnstr(stdscr, row, 2, "┈" * sep_width, W - 2, DIM)
+    row += 1
+
+    # Dedicated sparkline rows
+    t = gpu.temp
+    tl = gpu.temp_limit
+    gu = gpu.gpu_util
+    pi = gpu.power_inst
+    spark_col = 16
+    gpu_spark_defs = [
+        ("Temp", sparklines[gpu_key]["temp"],
+         GREEN if t < 55 else YELLOW if t < 70 else RED,
+         f"{t}C"),
+        ("GPU Util", sparklines[gpu_key]["gpu_util"],
+         GREEN if gu < 50 else YELLOW if gu < 80 else RED,
+         f"{gu}%"),
+        ("Memory", sparklines[gpu_key]["mem_pct"],
+         GREEN if mem_pct < 60 else YELLOW if mem_pct < 85 else RED,
+         f"{mem_pct:.0f}%"),
+        ("Power", sparklines[gpu_key]["power"],
+         GREEN if pi < 150 else YELLOW if pi < 250 else RED,
+         f"{pi:.0f}W"),
+    ]
+    for slabel, buf, color, val_str in gpu_spark_defs:
+        safe_addnstr(stdscr, row, 4, slabel, W - 4, WHITE)
+        spark = buf.render()
+        if spark:
+            safe_addnstr(stdscr, row, spark_col, spark, W - spark_col, color)
+            val_col = spark_col + len(spark) + 2
+        else:
+            val_col = spark_col
+        safe_addnstr(stdscr, row, val_col, val_str, W - val_col, color)
+        row += 1
+
     return row
 
 
@@ -166,10 +220,12 @@ def _draw_service_panel(
             "gen_tps": SparklineBuffer(),
             "avg_e2e": SparklineBuffer(),
             "waiting": SparklineBuffer(),
+            "kv_cache": SparklineBuffer(),
         }
     sparklines[key]["gen_tps"].push(snap.gen_tps)
     sparklines[key]["avg_e2e"].push(snap.avg_e2e)
     sparklines[key]["waiting"].push(snap.waiting)
+    sparklines[key]["kv_cache"].push(snap.kv_cache_pct)
 
     # Status + utilization windows
     safe_addnstr(stdscr, row, 2, "UP", 2, GREEN)
@@ -192,12 +248,6 @@ def _draw_service_panel(
     safe_addnstr(stdscr, row, col, txt, W - col, w_color)
     col += len(txt) + 2
 
-    # Queue sparkline
-    q_spark = sparklines[key]["waiting"].render()
-    if q_spark:
-        safe_addnstr(stdscr, row, col, q_spark, W - col, YELLOW)
-        col += len(q_spark) + 2
-
     txt = f"total={int(snap.req_count)}"
     safe_addnstr(stdscr, row, col, txt, W - col, DIM)
     col += len(txt) + 2
@@ -216,18 +266,8 @@ def _draw_service_panel(
     # Throughput
     safe_addnstr(stdscr, row, 0, "  Throughput:", W, WHITE)
     tp_color = GREEN if snap.gen_tps > 0 else DIM
-    txt = f"gen={snap.gen_tps:.1f} tok/s"
+    txt = f"gen={snap.gen_tps:.1f} tok/s  prefill={snap.prompt_tps:.1f} tok/s"
     safe_addnstr(stdscr, row, 14, txt, W - 14, tp_color)
-    col = 14 + len(txt) + 1
-    # Sparkline
-    spark = sparklines[key]["gen_tps"].render()
-    if spark:
-        safe_addnstr(stdscr, row, col, spark, W - col, GREEN)
-        col += len(spark) + 2
-    else:
-        col += 1
-    txt = f"prefill={snap.prompt_tps:.1f} tok/s"
-    safe_addnstr(stdscr, row, col, txt, W - col, tp_color)
     row += 1
 
     # Tokens
@@ -247,10 +287,6 @@ def _draw_service_panel(
     e2e_color = GREEN if snap.avg_e2e < 5 else YELLOW if snap.avg_e2e < 15 else RED
     txt = f"avg_e2e={snap.avg_e2e:.2f}s  avg_ttft={snap.avg_ttft:.3f}s"
     safe_addnstr(stdscr, row, 14, txt, W - 14, e2e_color)
-    col = 14 + len(txt) + 1
-    spark = sparklines[key]["avg_e2e"].render()
-    if spark:
-        safe_addnstr(stdscr, row, col, spark, W - col, YELLOW)
     row += 1
 
     # Prefix cache & preemptions
@@ -265,6 +301,37 @@ def _draw_service_panel(
         stdscr, row, col, f"preemptions={int(snap.preemptions)}", W - col, p_color
     )
     row += 1
+
+    # Sparkline section separator
+    sep_width = min(42, W - 2)
+    safe_addnstr(stdscr, row, 2, "┈" * sep_width, W - 2, DIM)
+    row += 1
+
+    # Dedicated sparkline rows
+    spark_col = 16  # where the sparkline characters start
+    spark_defs = [
+        ("Throughput", sparklines[key]["gen_tps"], GREEN,
+         f"{snap.gen_tps:.1f} tok/s"),
+        ("Latency", sparklines[key]["avg_e2e"],
+         GREEN if snap.avg_e2e < 5 else YELLOW if snap.avg_e2e < 15 else RED,
+         f"{snap.avg_e2e:.1f}s"),
+        ("Queue", sparklines[key]["waiting"],
+         GREEN if snap.waiting == 0 else YELLOW if snap.waiting < 5 else RED,
+         f"{int(snap.waiting)}"),
+        ("KV Cache", sparklines[key]["kv_cache"],
+         GREEN if snap.kv_cache_pct < 50 else YELLOW if snap.kv_cache_pct < 80 else RED,
+         f"{snap.kv_cache_pct:.1f}%"),
+    ]
+    for label, buf, color, val_str in spark_defs:
+        safe_addnstr(stdscr, row, 4, label, W - 4, WHITE)
+        spark = buf.render()
+        if spark:
+            safe_addnstr(stdscr, row, spark_col, spark, W - spark_col, color)
+            val_col = spark_col + len(spark) + 2
+        else:
+            val_col = spark_col
+        safe_addnstr(stdscr, row, val_col, val_str, W - val_col, color)
+        row += 1
 
     row += 1  # blank line
     return row
@@ -333,7 +400,7 @@ def draw(stdscr, config: MonitorConfig, csv_logger: CsvLogger | None = None):
 
         # GPU panels
         for gpu in gpus:
-            row = _draw_gpu_panel(stdscr, row, gpu, W, colors)
+            row = _draw_gpu_panel(stdscr, row, gpu, W, colors, sparklines)
 
         if gpus:
             row += 1
