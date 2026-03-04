@@ -10,8 +10,9 @@ Live terminal dashboard for monitoring [vLLM](https://github.com/vllm-project/vl
 - **Real-time TUI dashboard** — curses-based, works over SSH
 - **Multi-service monitoring** — track multiple vLLM instances simultaneously
 - **GPU metrics** — temperature, utilization, memory, power draw (multi-GPU support)
-- **Throughput tracking** — generation/prefill tokens per second with sparkline history
-- **KV cache monitoring** — usage percentage with color-coded alerts
+- **Sparkline history graphs** — dedicated graph rows for throughput, latency, queue depth, KV cache, GPU temp, utilization, memory, and power with 40-sample rolling history
+- **Throughput tracking** — generation/prefill tokens per second
+- **KV cache monitoring** — usage bar + sparkline history with color-coded alerts
 - **Latency stats** — average end-to-end and time-to-first-token
 - **Utilization history** — 1m/5m/15m busy percentages per service
 - **Auto-discovery** — find running vLLM services via port scanning and Docker
@@ -73,6 +74,45 @@ vllm-monitor --url http://localhost:8000 --json
 ```bash
 vllm-monitor --url http://localhost:8000 --log metrics.csv
 ```
+
+## Dashboard Layout
+
+Each GPU and service panel displays real-time metrics followed by a dedicated sparkline graph section:
+
+```
+ GPU  NVIDIA A100 (VRAM)
+  Temp:      [########--------] 55C / 83C limit
+  GPU Util:  [################] 96%
+  Memory:    [##############--] 72.1 / 80 GiB (90%)
+  Power:     avg=245.0W  now=262.0W  clock=1410MHz / 1410MHz
+  ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+    Temp     ▅▅▅▆▆▆▆▇▇▇▇▇▆▆▅▅▅▅▆▆▆▇▇▇▇▆▆▆▅▅  55C
+
+    GPU Util ▇▇█▇▇█▇█▇▇█▇▇▇▇▇█▇▇█▇█▇▇█▇▇▇▇▇  96%
+
+    Memory   ▅▅▅▅▆▆▆▆▇▇▇▇▇▇▆▆▆▆▅▅▅▅▆▆▆▆▇▇▇▇  90%
+
+    Power    ▅▆▆▇▇▇█▇▇▆▆▅▅▆▆▇▇▇█▇▇▆▆▅▅▆▆▇▇▇  262W
+
+ GPT-OSS (120B)  :8000
+  UP  busy: 1m=80%  5m=60%  15m=45%
+  Requests:   running=3  waiting=1  total=500  (2.1 req/s)
+  KV Cache:   [########--------] 40.2%
+  Throughput: gen=45.2 tok/s  prefill=120.0 tok/s
+  Tokens:     generated=1.2M  prompt=3.4M
+  Latency:    avg_e2e=2.31s  avg_ttft=0.142s
+  Prefix$:    hit_rate=65%  preemptions=0
+  ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+    Throughput  ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▅▆▇█▇▆▅▄▃▂▁▂  45.2 tok/s
+
+    Latency     ▅▄▃▂▁▁▂▃▄▅▆▇▆▅▄▃▂▁▁▂▅▄▃▂▁▁▂▃   2.3s
+
+    Queue       ▁▁▁▁▂▃▅▆▃▂▁▁▁▁▁▁▁▂▃▁▁▁▁▁▂▃▅▆   1
+
+    KV Cache    ▁▁▂▂▃▃▄▄▅▅▅▅▄▄▃▃▂▂▁▁▁▁▂▂▃▃▄▄  40.2%
+```
+
+Sparkline colors change based on severity thresholds (green/yellow/red) so you can spot issues at a glance. Each graph tracks a rolling 40-sample history that fills in as the monitor runs.
 
 ## Configuration
 

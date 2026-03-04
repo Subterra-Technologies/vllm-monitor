@@ -168,7 +168,7 @@ def _draw_gpu_panel(
         else:
             val_col = spark_col
         safe_addnstr(stdscr, row, val_col, val_str, W - val_col, color)
-        row += 1
+        row += 2  # extra blank line between sparkline rows
 
     return row
 
@@ -331,9 +331,7 @@ def _draw_service_panel(
         else:
             val_col = spark_col
         safe_addnstr(stdscr, row, val_col, val_str, W - val_col, color)
-        row += 1
-
-    row += 1  # blank line
+        row += 2  # extra blank line between sparkline rows
     return row
 
 
